@@ -2,6 +2,9 @@ import praw
 import time
 from datetime import datetime, timedelta
 import requests
+import shelve
+
+shelf = shelve.open("autotrader")
 
 reddit = praw.Reddit()
 
@@ -10,9 +13,7 @@ def id_from_name(name):
 
 meme_economy = reddit.subreddit("MemeEconomy")
 mib_name = "MemeInvestor_bot"
-mib_id = id_from_name(mib_name)
 bot_name = "AutoMeme5000"
-bot_id = id_from_name(bot_name)
 
 def balance(user):
     bal = requests.get(f"https://meme.market/api/investor/{user}").json()["balance"]
@@ -22,25 +23,22 @@ def balance(user):
 def is_good_investment(score, age, num_comments):
     return age < 60 and age > 1 and num_comments > age and score > age
 
-last_investment = None
+last_investment_time = None
 
 def minutes_ago(ev):
     return (datetime.utcnow() - ev).total_seconds() // 60
 
 def invest(submission):
+    if submission.id in shelf["invested"]:
+        print("Already invested in", submission.id)
+        return
+
     for comment in submission.comments:
         # found the investmentbot comment - must reply to this
-        if comment.author.id == mib_id:
-            comment.replies.replace_more(limit=None)
-            # check for previous investment by us
-            for subcomment in comment.replies:
-                if subcomment.author != None and subcomment.author.id == bot_id:
-                    print("Already invested in", submission)
-                    return
-
-            global last_investment
-            if last_investment != None and minutes_ago(last_investment) < 11:
-                print("Last investment was", minutes_ago(last_investment), "mins ago (too recent). Waiting...")
+        if comment.author.name == mib_name:
+            global last_investment_time
+            if last_investment_time != None and minutes_ago(last_investment_time) < 11:
+                print("Last investment was", minutes_ago(last_investment_time), "mins ago (too recent). Waiting...")
                 return
 
             bal = balance(bot_name)
@@ -48,8 +46,13 @@ def invest(submission):
                 raise RuntimeError("The bot is broke. Please file for bankruptcy.")
             qty = max(bal // 3, 100)
             print("Investing", qty, "in", submission)
-            last_investment = datetime.utcnow()
+            last_investment_time = datetime.utcnow()
             comment.reply(f"!invest {qty}")
+
+            invested_list = shelf["invested"]
+            invested_list.add(submission.id)
+            shelf["invested"] = invested_list
+
             return
 
 while True:
