@@ -40,7 +40,7 @@ def invest(submission):
         if comment.author.name == mib_name:
             global last_investment_time
             if last_investment_time != None and minutes_ago(last_investment_time) < 11:
-                logging.info(f"Last investment was {minutes_ago(last_investment_time)} minutess ago (too recent). Waiting...")
+                logging.info(f"Last investment was {minutes_ago(last_investment_time)} minutes ago (too recent). Waiting...")
                 return
 
             data = info(bot_name)
