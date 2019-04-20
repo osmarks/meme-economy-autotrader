@@ -4,13 +4,11 @@ from datetime import datetime, timedelta
 import requests
 import shelve
 import logging
+import re
 
 shelf = shelve.open("autotrader")
 
 reddit = praw.Reddit()
-
-def id_from_name(name):
-    return reddit.redditor(name).id
 
 meme_economy = reddit.subreddit("MemeEconomy")
 mib_name = "MemeInvestor_bot"
@@ -22,44 +20,74 @@ def info(user):
     logging.info(f"Net worth: {data['networth']}.")
     return data
 
-def is_good_investment(score, age, num_comments):
-    return age < 60 and age > 1 and num_comments > age and score > age
+def find_mib_comment(submission):
+    for comment in submission.comments:
+        if comment.author.name == mib_name:
+            return comment
+
+investment_amount_regex = re.compile(r"\*([0-9,]+) MemeCoins invested")
+
+# Parses a MemeInvestor_bot reply to an !invest command
+def parse_investment_amount(comment_body):
+    result = re.search(investment_amount_regex, comment_body)
+    if result != None:
+        return int(result.group(1).replace(",", ""))
+
+# Guesses if a submission will be a good investment or not, primarily by piggybacking off human traders' guesses
+def good_investment(submission):
+    created = datetime.utcfromtimestamp(submission.created)
+    age = minutes_ago(created)
+
+    if submission.num_comments > (age + 1) and age < 120: # preliminary check to avoid wasting API call budget - if too few investments anyway, we can ignore it
+        logging.info(f"{submission} passes basic check, summing investment amounts...")
+
+        invested = 0
+        investments = 0
+
+        mib_comment = find_mib_comment(submission)
+        mib_comment.replies.replace_more(limit=None)
+        for reply in mib_comment.replies: 
+            for subreply in reply.replies:
+                if subreply.author.name == mib_name: # response to investment found
+                    amount = parse_investment_amount(subreply.body)
+                    if amount != None:
+                        invested += amount
+                        investments += 1
+
+        logging.info(f"Total invested: {invested}, investment count: {investments}.")
+        if invested > 1000000 and investments > (age + 5):
+            return True
+
+    return False
 
 last_investment_time = None
 
+# Calculates how many minutes ago a datetime was
 def minutes_ago(ev):
     return (datetime.utcnow() - ev).total_seconds() // 60
 
+# Invest in a submission. Checks if the bot has enough money, and if it has invested too recently
 def invest(submission):
-    if submission.id in shelf["invested"]:
-        logging.info(f"Already invested in {submission.id}.")
-        return
+    comment = find_mib_comment(submission)
 
-    for comment in submission.comments:
-        # found the investmentbot comment - must reply to this
-        if comment.author.name == mib_name:
-            global last_investment_time
-            if last_investment_time != None and minutes_ago(last_investment_time) < 11:
-                logging.info(f"Last investment was {minutes_ago(last_investment_time)} minutes ago (too recent). Waiting...")
-                return
+    global last_investment_time
+    if last_investment_time != None and minutes_ago(last_investment_time) <= 10:
+        logging.warning(f"Last investment was {minutes_ago(last_investment_time)} minutes ago (too recent). Waiting...")
+        return False
 
-            data = info(bot_name)
-            if data["balance"] < 100:
-                logging.warning(f"Not enough money to invest. Waiting...")
-                if data["networth"] < 100:
-                    raise RuntimeError("The bot is broke (balance and possible value of investments below 100). Please file for bankruptcy.")
-                return
+    data = info(bot_name)
+    if data["balance"] < 100:
+        logging.warning(f"Not enough money to invest. Waiting...")
+        if data["networth"] < 100:
+            raise RuntimeError("The bot is broke (balance and possible value of investments below 100). Please file for bankruptcy.")
+        return False
 
-            qty = max(data["balance"] // 3, 100)
-            last_investment_time = datetime.utcnow()
-            comment.reply(f"!invest {qty}")
-            logging.info(f"Invested {qty} in {submission.id}")
+    qty = max(data["balance"] // 2, 100)
+    last_investment_time = datetime.utcnow()
+    comment.reply(f"!invest {qty}")
+    logging.info(f"Invested {qty} in {submission.id}")
 
-            invested_list = shelf["invested"]
-            invested_list.add(submission.id)
-            shelf["invested"] = invested_list
-
-            return
+    return True
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(asctime)s %(message)s", datefmt="%H:%M:%S %d/%m/%Y")
 
@@ -67,9 +95,15 @@ while True:
     logging.info("Running meme check cycle.")
     for submission in meme_economy.new():
         if not submission.is_self and not submission.over_18:
-            created = datetime.utcfromtimestamp(submission.created)
-            age = minutes_ago(created)
-            if is_good_investment(submission.score, age, submission.num_comments or 0):
-                invest(submission)
+            if good_investment(submission):
+                if submission.id in shelf["invested"]:
+                    logging.info(f"Already invested in {submission.id}.")
+                    continue
+
+                success = invest(submission)
+                if success:
+                    invested_list = shelf["invested"]
+                    invested_list.add(submission.id)
+                    shelf["invested"] = invested_list
 
     time.sleep(15)
