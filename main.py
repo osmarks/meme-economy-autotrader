@@ -38,19 +38,19 @@ def good_investment(submission):
     created = datetime.utcfromtimestamp(submission.created)
     age = minutes_ago(created)
 
-    if submission.num_comments > (age + 1) and age < 120: # preliminary check to avoid wasting API call budget - if too few investments anyway, we can ignore it
+    if submission.num_comments - 1 > age and age < 120: # preliminary check to avoid wasting API call budget - if too few investments anyway, we can ignore it
         logging.info(f"{submission} passes basic check, summing investment amounts...")
 
         invested = 0
         investments = 0
 
         mib_comment = find_mib_comment(submission)
-        mib_comment.replies.replace_more(limit=None)
+        mib_comment.replies.replace_more(limit=None) # load all replies to the MemeInvestment_bot comment
         for reply in mib_comment.replies: 
             for subreply in reply.replies:
                 if subreply.author.name == mib_name: # response to investment found
                     amount = parse_investment_amount(subreply.body)
-                    if amount != None:
+                    if amount != None: # increment our totals
                         invested += amount
                         investments += 1
 
@@ -70,11 +70,13 @@ def minutes_ago(ev):
 def invest(submission):
     comment = find_mib_comment(submission)
 
+    # Ensure we obey the 1-per-10-minutes comment ratelimit
     global last_investment_time
     if last_investment_time != None and minutes_ago(last_investment_time) <= 10:
         logging.warning(f"Last investment was {minutes_ago(last_investment_time)} minutes ago (too recent). Waiting...")
         return False
 
+    # Check balance and detect total bankruptcy as well as just not having enough balance
     data = info(bot_name)
     if data["balance"] < 100:
         logging.warning(f"Not enough money to invest. Waiting...")
@@ -92,18 +94,24 @@ def invest(submission):
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(asctime)s %(message)s", datefmt="%H:%M:%S %d/%m/%Y")
 
 while True:
-    logging.info("Running meme check cycle.")
-    for submission in meme_economy.new():
-        if not submission.is_self and not submission.over_18:
-            if good_investment(submission):
-                if submission.id in shelf["invested"]:
-                    logging.info(f"Already invested in {submission.id}.")
-                    continue
+    try:
+        logging.info("Running meme check cycle.")
+        for submission in meme_economy.new():
+            if not submission.is_self and not submission.over_18:
+                if good_investment(submission):
+                    # Check that we haven't already invested
+                    if submission.id in shelf["invested"]:
+                        logging.info(f"Already invested in {submission.id}.")
+                        continue
 
-                success = invest(submission)
-                if success:
-                    invested_list = shelf["invested"]
-                    invested_list.add(submission.id)
-                    shelf["invested"] = invested_list
+                    success = invest(submission)
+                    # If investment actually goes through, add it to the already invested list
+                    if success:
+                        invested_list = shelf["invested"]
+                        invested_list.add(submission.id)
+                        shelf["invested"] = invested_list
+    except Exception as e:
+        import traceback
+        logging.error(f"Failed to load or invest in memes: {e}.\n{''.join(traceback.format_tb(e.__traceback__))}Trying again in 15 seconds.")
 
     time.sleep(15)
