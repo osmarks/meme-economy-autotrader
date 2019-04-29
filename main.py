@@ -6,13 +6,17 @@ import shelve
 import logging
 import re
 
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(asctime)s %(message)s", datefmt="%H:%M:%S %d/%m/%Y")
+
 shelf = shelve.open("autotrader")
 
 reddit = praw.Reddit()
 
 meme_economy = reddit.subreddit("MemeEconomy")
 mib_name = "MemeInvestor_bot"
-bot_name = "AutoMeme5000"
+bot_name = reddit.user.me().name
+
+logging.info(f"Running as {bot_name}.")
 
 def info(user):
     data = requests.get(f"https://meme.market/api/investor/{user}").json()
@@ -90,8 +94,6 @@ def invest(submission):
     logging.info(f"Invested {qty} in {submission.id}")
 
     return True
-
-logging.basicConfig(level=logging.INFO, format="%(levelname)s %(asctime)s %(message)s", datefmt="%H:%M:%S %d/%m/%Y")
 
 while True:
     try:
