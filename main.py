@@ -100,18 +100,19 @@ while True:
             if not submission.is_self and not submission.over_18:
                 if good_investment(submission):
                     # Check that we haven't already invested
-                    if submission.id in shelf["invested"]:
+                    previous_investments = shelf.get("invested")
+                    if previous_investments != None and submission.id in previous_investments:
                         logging.info(f"Already invested in {submission.id}.")
                         continue
 
                     success = invest(submission)
                     # If investment actually goes through, add it to the already invested list
                     if success:
-                        invested_list = shelf["invested"]
+                        invested_list = shelf.get("invested", default=set())
                         invested_list.add(submission.id)
                         shelf["invested"] = invested_list
     except Exception as e:
         import traceback
-        logging.error(f"Failed to load or invest in memes: {e}.\n{''.join(traceback.format_tb(e.__traceback__))}Trying again in 15 seconds.")
+        logging.error(f"Failed to load or invest in memes: {repr(e)}.\n{''.join(traceback.format_tb(e.__traceback__))}Trying again in 15 seconds.")
 
     time.sleep(15)
