@@ -20,8 +20,7 @@ logging.info(f"Running as {bot_name}.")
 
 def info(user):
     data = requests.get(f"https://meme.market/api/investor/{user}").json()
-    logging.info(f"Balance: {data['balance']}.")
-    logging.info(f"Net worth: {data['networth']}.")
+    logging.info(f"Balance: {data['balance']}, net worth: {data['networth']}.")
     return data
 
 def find_mib_comment(submission):
@@ -29,7 +28,7 @@ def find_mib_comment(submission):
         if comment.author.name == mib_name:
             return comment
 
-investment_amount_regex = re.compile(r"\*([0-9,]+) MemeCoins invested")
+investment_amount_regex = re.compile(r"\*([0-9,]+) MemeCoins invested") # extracts the investment amount from a MemeInvestor_bot reply to an `!invest` command
 
 # Parses a MemeInvestor_bot reply to an !invest command
 def parse_investment_amount(comment_body):
@@ -37,13 +36,13 @@ def parse_investment_amount(comment_body):
     if result != None:
         return int(result.group(1).replace(",", ""))
 
-# Guesses if a submission will be a good investment or not, primarily by piggybacking off human traders' guesses
+# Guesses if a submission will be a good investment or not, by seeing if many human traders have invested
 def good_investment(submission):
     created = datetime.utcfromtimestamp(submission.created_utc)
     age = minutes_ago(created)
 
     if submission.num_comments - 1 > age and age < 30: # preliminary check to avoid wasting API call budget - if too few investments anyway, we can ignore it
-        logging.info(f"{submission} passes basic check, summing investment amounts...")
+        logging.info(f"{submission} passes fast check, running full check...")
 
         invested = 0
         investments = 0
@@ -58,7 +57,7 @@ def good_investment(submission):
                         invested += amount
                         investments += 1
 
-        logging.info(f"Total invested: {invested}, investment count: {investments}.")
+        logging.info(f"MemeCoins invested in submission (by all users): {invested}, number of investments made (by all users): {investments}.")
         if invested > 10000000 and investments - 10 > age:
             return True
 
@@ -83,9 +82,9 @@ def invest(submission):
     # Check balance and detect total bankruptcy as well as just not having enough balance
     data = info(bot_name)
     if data["balance"] < 100:
-        logging.warning(f"Not enough money to invest. Waiting...")
+        logging.warning(f"Insufficient funds. Waiting...")
         if data["networth"] < 100:
-            raise RuntimeError("The bot is broke (balance and possible value of investments below 100). Please file for bankruptcy.")
+            raise RuntimeError("The bot is broke (net worth below 100). Please manually run `!broke`.")
         return False
 
     qty = max(data["balance"] // 2, 100)
@@ -97,11 +96,11 @@ def invest(submission):
 
 while True:
     try:
-        logging.info("Running meme check cycle.")
-        for submission in meme_economy.new():
+        logging.info("Checking latest submissions.")
+        for submission in meme_economy.new(limit=10):
             if not submission.is_self and not submission.over_18:
                 if good_investment(submission):
-                    # Check that we haven't already invested
+                    # Check that we haven't already invested in this submission
                     previous_investments = shelf.get("invested")
                     if previous_investments != None and submission.id in previous_investments:
                         logging.info(f"Already invested in {submission.id}.")
@@ -115,6 +114,6 @@ while True:
                         shelf["invested"] = invested_list
     except Exception as e:
         import traceback
-        logging.error(f"Failed to load or invest in memes: {repr(e)}.\n{''.join(traceback.format_tb(e.__traceback__))}Trying again in 15 seconds.")
+        logging.error(f"Error during investment or submission checking: {repr(e)}.\n{''.join(traceback.format_tb(e.__traceback__))}Trying again in 15 seconds.")
 
     time.sleep(15)
