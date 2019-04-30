@@ -42,7 +42,7 @@ def good_investment(submission):
     created = datetime.utcfromtimestamp(submission.created)
     age = minutes_ago(created)
 
-    if submission.num_comments - 1 > age and age < 120: # preliminary check to avoid wasting API call budget - if too few investments anyway, we can ignore it
+    if submission.num_comments - 1 > age and age < 30: # preliminary check to avoid wasting API call budget - if too few investments anyway, we can ignore it
         logging.info(f"{submission} passes basic check, summing investment amounts...")
 
         invested = 0
@@ -59,7 +59,7 @@ def good_investment(submission):
                         investments += 1
 
         logging.info(f"Total invested: {invested}, investment count: {investments}.")
-        if invested > 1000000 and investments > (age + 5):
+        if invested > 10000000 and investments > (age + 15):
             return True
 
     return False
