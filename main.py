@@ -39,7 +39,7 @@ def parse_investment_amount(comment_body):
 
 # Guesses if a submission will be a good investment or not, primarily by piggybacking off human traders' guesses
 def good_investment(submission):
-    created = datetime.utcfromtimestamp(submission.created)
+    created = datetime.utcfromtimestamp(submission.created_utc)
     age = minutes_ago(created)
 
     if submission.num_comments - 1 > age and age < 30: # preliminary check to avoid wasting API call budget - if too few investments anyway, we can ignore it
@@ -59,7 +59,7 @@ def good_investment(submission):
                         investments += 1
 
         logging.info(f"Total invested: {invested}, investment count: {investments}.")
-        if invested > 10000000 and investments > (age + 15):
+        if invested > 10000000 and investments - 10 > age:
             return True
 
     return False
