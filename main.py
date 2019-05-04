@@ -103,16 +103,23 @@ def invest(submission):
 
     # Check balance and detect total bankruptcy as well as just not having enough balance
     data = info(bot_name)
-    if data["balance"] < 100:
+    balance = data["balance"]
+
+    if balance < 100:
         logging.warning(f"Insufficient funds. Waiting...")
         if data["networth"] < 100:
             raise RuntimeError("The bot is broke (net worth below 100). Please manually run `!broke`.")
         return False
 
-    qty = max(data["balance"] // 2, 100)
+    quantity = balance # If we do not have enough money to make two investments, just spend all of it
+    real_quantity = quantity
+    if balance >= 200: # If we do, then just invest 50%, as the bot accepts that
+        quantity = "50%"
+        real_quantity = balance // 2
+
     last_investment_time = datetime.utcnow()
-    comment.reply(f"!invest {qty}")
-    logging.info(f"Invested {qty} in {submission.id}")
+    comment.reply(f"!invest {quantity}")
+    logging.info(f"Invested {quantity} ({real_quantity} MemeCoins) in {submission.id}")
 
     return True
 
