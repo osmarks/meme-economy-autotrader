@@ -2,13 +2,32 @@ import praw
 import time
 from datetime import datetime, timedelta
 import requests
-import shelve
+import json
 import logging
 import re
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(asctime)s %(message)s", datefmt="%H:%M:%S %d/%m/%Y")
 
-shelf = shelve.open("autotrader")
+data = {}
+data_file = "autotrader-data.json"
+
+def save_data():
+    try:
+        with open(data_file, "w") as f:
+            global data
+            json.dump(data, f)
+    except Exception as e:
+        logging.error(f"Error saving data file: {repr(e)}.")
+
+def load_data():
+    try:
+        with open(data_file, "r") as f:
+            global data
+            data = json.load(f)
+    except Exception as e:
+        logging.warning(f"Error loading data file: {repr(e)}. This is not a critical error.")
+
+load_data()
 
 reddit = praw.Reddit()
 
@@ -48,6 +67,9 @@ def good_investment(submission):
         investments = 0
 
         mib_comment = find_mib_comment(submission)
+
+        if mib_comment == None: return False
+
         mib_comment.replies.replace_more(limit=None) # load all replies to the MemeInvestment_bot comment
         for reply in mib_comment.replies: 
             for subreply in reply.replies:
@@ -58,7 +80,7 @@ def good_investment(submission):
                         investments += 1
 
         logging.info(f"MemeCoins invested in submission (by all users): {invested}, number of investments made (by all users): {investments}.")
-        if invested > 10000000 and investments - 10 > age:
+        if invested > 1000000 and investments - 10 > age:
             return True
 
     return False
@@ -101,17 +123,17 @@ while True:
             if not submission.is_self and not submission.over_18:
                 if good_investment(submission):
                     # Check that we haven't already invested in this submission
-                    previous_investments = shelf.get("invested")
-                    if previous_investments != None and submission.id in previous_investments:
+                    previous_investments = data.get("invested", [])
+                    if submission.id in previous_investments:
                         logging.info(f"Already invested in {submission.id}.")
                         continue
 
                     success = invest(submission)
                     # If investment actually goes through, add it to the already invested list
                     if success:
-                        invested_list = shelf.get("invested", default=set())
-                        invested_list.add(submission.id)
-                        shelf["invested"] = invested_list
+                        previous_investments.append(submission.id)
+                        data["invested"] = previous_investments
+                        save_data()
     except Exception as e:
         import traceback
         logging.error(f"Error during investment or submission checking: {repr(e)}.\n{''.join(traceback.format_tb(e.__traceback__))}Trying again in 15 seconds.")
