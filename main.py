@@ -5,8 +5,25 @@ import requests
 import json
 import logging
 import re
+import yaml
+import random
+import math
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(asctime)s %(message)s", datefmt="%H:%M:%S %d/%m/%Y")
+
+# Find a path inside a nested object, with a default value in case of it not existing
+def find(path, obj, default):
+    keys = path.split('.')
+    rv = obj
+    for key in keys:
+        rv = rv.get(key)
+        if rv == None:
+            return default
+    return rv
+
+config = yaml.safe_load(open("config.yml"))
+
+config_path = lambda path, default: find(path, config, default)
 
 data = {}
 data_file = "autotrader-data.json"
@@ -39,6 +56,11 @@ logging.info(f"Running as {bot_name}.")
 
 def info(user):
     data = requests.get(f"https://meme.market/api/investor/{user}").json()
+    simulate_balance = config_path("development.simulate_balance", None)
+    if simulate_balance != None:
+        logging.info(f"Simulating balance {simulate_balance}.")
+        data["balance"] = simulate_balance
+        data["networth"] = simulate_balance
     logging.info(f"Balance: {data['balance']}, net worth: {data['networth']}.")
     return data
 
@@ -60,8 +82,11 @@ def good_investment(submission):
     created = datetime.utcfromtimestamp(submission.created_utc)
     age = minutes_ago(created)
 
-    if submission.num_comments - 1 > age and age < 30: # preliminary check to avoid wasting API call budget - if too few investments anyway, we can ignore it
+    # # preliminary check to avoid wasting API call budget - if too few investments anyway, we can ignore it
+    if config_path("development.skip_fast_check", False) or (submission.num_comments - 1 > age and age < 30):
         logging.info(f"{submission} passes fast check, running full check...")
+
+        if config_path("development.skip_full_check", True): return True
 
         invested = 0
         investments = 0
@@ -91,35 +116,49 @@ last_investment_time = None
 def minutes_ago(ev):
     return (datetime.utcnow() - ev).total_seconds() // 60
 
-# Invest in a submission. Checks if the bot has enough money, and if it has invested too recently
+# Invest in a submission. Checks if the bot has enough money, if the time is within the selected interval, and if it has invested too recently.
 def invest(submission):
-    comment = find_mib_comment(submission)
+    hour_now = datetime.now().hour
+    min_hour = config_path("limits.invest_only_after_hour", None)
+    max_hour = config_path("limits.invest_only_before_hour", None)
+    if min_hour != None and hour_now < min_hour: 
+        logging.info(f"Current hour ({hour_now}) is before configured investment start hour ({min_hour}).")
+        return
+    if max_hour != None and hour_now >= max_hour: 
+        logging.info(f"Current hour ({hour_now}) is after configured investment end hour ({max_hour}).")
+        return
 
-    # Ensure we obey the 1-per-10-minutes comment ratelimit
+    # Ensure we obey the configured rate limit.
     global last_investment_time
-    if last_investment_time != None and minutes_ago(last_investment_time) <= 10:
+    if last_investment_time != None and minutes_ago(last_investment_time) <= config_path("limits.investment_delay", 10):
         logging.warning(f"Last investment was {minutes_ago(last_investment_time)} minutes ago (too recent). Waiting...")
         return False
+
+    comment = find_mib_comment(submission)
 
     # Check balance and detect total bankruptcy as well as just not having enough balance
     data = info(bot_name)
     balance = data["balance"]
 
     if balance < 100:
-        logging.warning(f"Insufficient funds. Waiting...")
+        logging.warning(f"Insufficient funds available immediately. Waiting...")
         if data["networth"] < 100:
             raise RuntimeError("The bot is broke (net worth below 100). Please manually run `!broke`.")
         return False
 
-    quantity = balance # If we do not have enough money to make two investments, just spend all of it
-    real_quantity = quantity
-    if balance >= 200: # If we do, then just invest 50%, as the bot accepts that
-        quantity = "50%"
-        real_quantity = balance // 2
+    percentages = config_path("investment.possible_investment_percentages", [50])
+    percentage = random.choice(percentages)
+    scaled_percentage = percentage / 100
+    exact_amount = math.floor(scaled_percentage * balance)
+    value = 100 if exact_amount < 100 else f"{percentage}%" # The bot only allows investments of 100 MemeCoins or more. This is an annoying edge case to be handled.  
+
+    if config_path("development.dry_run", False):
+        logging.info(f"Not investing {value} ({exact_amount}) in {submission.id} (dry run mode).")
+        return
 
     last_investment_time = datetime.utcnow()
-    comment.reply(f"!invest {quantity}")
-    logging.info(f"Invested {quantity} ({real_quantity} MemeCoins) in {submission.id}")
+    comment.reply(f"!invest {value}")
+    logging.info(f"Invested {value} ({exact_amount} MemeCoins) in {submission.id}.") # TODO (maybe): make exact_amount correct in that edge case
 
     return True
 
@@ -145,4 +184,4 @@ while True:
         import traceback
         logging.error(f"Error during investment or submission checking: {repr(e)}.\n{''.join(traceback.format_tb(e.__traceback__))}Trying again in 15 seconds.")
 
-    time.sleep(15)
+    time.sleep(config_path("limits.meme_check_delay", 15))
