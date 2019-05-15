@@ -1,10 +1,11 @@
 # Move this to `config.yaml` and change values as appropriate
+# If you want to leave a value at the default settings, remove the relevant line
 
 investment:
   possible_investment_percentages: [ 10, 25, 50, 75, 100 ] # Possible percentage amounts to invest in a particular meme. One will be picked at random when an investment is made.
 
 limits:
-  invest_only_after_hour: 19 # If this exists, the bot will only make investments after this hour (local time zone, hopefully) begins
-  invest_only_before_hour: 20 # Same as above, but it will only invest *before* this hour begins
+  invest_only_after_hour: 19 # If this exists, the bot will only make investments after this hour (local time zone, hopefully) begins.
+  invest_only_before_hour: 20 # Same as above, but it will only invest *before* this hour begins.
   investment_delay: 10 # Wait at least this many minutes between investments. Values lower than 10 may cause errors.
-  meme_check_delay: 15 # Wait this many seconds between checking for new submissions
+  meme_check_delay: 15 # Wait this many seconds between checking for new submissions.
